@@ -1,0 +1,177 @@
+{
+  "id": "demo-execution-001",
+  "context_id": "9c4ab2",
+  "workflow": "golang",
+  "project": "/workspace/payments",
+  "brief": "Add idempotency support to the payments API, preserving the existing public contract.",
+  "state": "waiting_input",
+  "created_at": "2026-11-01T21:14:00Z",
+  "updated_at": "2026-11-01T21:30:00Z",
+  "resources": {
+    "samples": 24,
+    "unreported_sessions": 0,
+    "cost_samples": 24,
+    "cost_usd": 0.1842,
+    "tokens": {
+      "input": 14800,
+      "output": 6100,
+      "cache_read": 98200,
+      "cache_write": 12000
+    },
+    "tool_failures": 2
+  },
+  "steps": [
+    {
+      "id": "visit-specification",
+      "key": "specification",
+      "state": "completed",
+      "visit": 1,
+      "try": 1,
+      "started_at": "2026-11-01T21:14:00Z",
+      "finished_at": "2026-11-01T21:27:00Z",
+      "outcome": "completed",
+      "resources": {
+        "tool_failures": 2
+      }
+    },
+    {
+      "id": "visit-architecture_review",
+      "key": "architecture_review",
+      "state": "completed",
+      "visit": 1,
+      "try": 1,
+      "started_at": "2026-11-01T21:14:00Z",
+      "finished_at": "2026-11-01T21:27:00Z",
+      "outcome": "completed",
+      "resources": {
+        "tool_failures": 2
+      }
+    },
+    {
+      "id": "visit-design_approval",
+      "key": "design_approval",
+      "state": "waiting_input",
+      "visit": 1,
+      "try": 1,
+      "started_at": "2026-11-01T21:29:00Z"
+    }
+  ],
+  "requests": [
+    {
+      "id": "decision-001",
+      "execution_id": "demo-execution-001",
+      "step_id": "visit-design_approval",
+      "prompt": "Review the proposed contract and implementation plan before proceeding.",
+      "options": ["approve", "request_changes", "reject"],
+      "state": "pending",
+      "created_at": "2026-11-01T21:29:00Z"
+    }
+  ],
+  "configuration": {
+    "files_dir": "/workspace/.factory/executions/demo/files",
+    "workflow": {
+      "name": "golang",
+      "start": "specification",
+      "stages": [
+        {
+          "id": "design",
+          "steps": ["specification", "architecture_review"],
+          "loop": {
+            "mode": "concurrent",
+            "limit": 3
+          },
+          "human": {
+            "required": true,
+            "step": "design_approval"
+          }
+        },
+        {
+          "id": "implementation",
+          "steps": ["build", "code_review"],
+          "loop": {
+            "mode": "concurrent",
+            "limit": 3
+          },
+          "human": {
+            "required": true,
+            "step": "acceptance"
+          }
+        }
+      ],
+      "steps": [
+        {
+          "id": "specification",
+          "title": "Architecture & planning",
+          "kind": "run",
+          "run": {
+            "package": "architect"
+          },
+          "outputs": ["spec.html", "plan.html"],
+          "routes": {
+            "completed": "architecture_review"
+          }
+        },
+        {
+          "id": "architecture_review",
+          "title": "Architecture review",
+          "kind": "run",
+          "run": {
+            "package": "architecture_reviewer"
+          },
+          "routes": {
+            "changes_requested": "specification",
+            "completed": "design_approval"
+          }
+        },
+        {
+          "id": "design_approval",
+          "title": "Design decision",
+          "kind": "decision",
+          "decision": {
+            "authority": "operator",
+            "artifacts": ["spec.html", "plan.html"]
+          },
+          "routes": {
+            "approve": "build",
+            "request_changes": "specification"
+          }
+        },
+        {
+          "id": "build",
+          "title": "Implementation",
+          "kind": "run",
+          "run": {
+            "package": "coder_golang"
+          },
+          "routes": {
+            "completed": "code_review"
+          }
+        },
+        {
+          "id": "code_review",
+          "title": "Independent code review",
+          "kind": "run",
+          "run": {
+            "package": "code_reviewer_golang"
+          },
+          "routes": {
+            "completed": "acceptance",
+            "changes_requested": "build"
+          }
+        },
+        {
+          "id": "acceptance",
+          "title": "Final acceptance",
+          "kind": "decision",
+          "decision": {
+            "authority": "operator"
+          },
+          "routes": {
+            "approve": "$complete",
+            "request_changes": "build"
+          }
+        }
+      ]
+    }
+  }
+}
