@@ -21,7 +21,7 @@ pragma-monitor
 
 `make install` performs dependency installation, build and link. `make run` starts the built app. `npm run dev` starts the same local bridge with Vite development middleware.
 
-Controls must already be available. Any normal Factory CLI operation, such as `factory ls`, connects to or starts its shared local service. Monitor never starts, stops, installs or restarts the controller. No Factory/Registry checkout is required by the running monitor.
+Start Controls explicitly with `factory start` before opening Monitor. Operational commands such as `factory ls` only connect and fail if the service is not running. Monitor never starts, stops, installs or restarts the controller. No Factory/Registry checkout is required by the running monitor.
 
 ```sh
 pragma-monitor --port 4175
