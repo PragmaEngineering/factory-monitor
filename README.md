@@ -16,17 +16,19 @@ Open **http://127.0.0.1:4173**. To install the command on your npm binary path:
 
 ```sh
 npm link
-pragma-monitor
+factory monitor start
 ```
+
+`factory monitor start` resolves the installed `pragma-monitor` command on `PATH` and forwards its options. Both launch commands work from any directory without `factory.json`. Bare `factory monitor` prints help without starting anything. Use `factory monitor start -d` (or `--detach`) to run in the background; it prints the URL, PID, and private log path. Additional options, such as `--port 4175`, are forwarded. Startup waits for the listener to bind and reports early failures. `factory monitor stop` stops all Factory-managed detached monitors without stopping the control-plane daemon or requiring the UI executable. Foreground or independently launched instances are not managed by this command. `factory stop --all` also stops managed detached monitors, while `factory stop` leaves Monitor running.
 
 `make install` performs dependency installation, build and link. `make run` starts the built app. `npm run dev` starts the same local bridge with Vite development middleware.
 
 Start Controls explicitly with `factory start` before opening Monitor. Operational commands such as `factory ls` only connect and fail if the service is not running. Monitor never starts, stops, installs or restarts the controller. No Factory/Registry checkout is required by the running monitor.
 
 ```sh
-pragma-monitor --port 4175
-pragma-monitor --socket /path/to/factory.sock
-pragma-monitor --help
+factory monitor start --port 4175
+factory monitor start --socket /path/to/factory.sock
+factory monitor
 ```
 
 Default socket: `~/.factory/runtime/factory.sock`. The server binds only to `127.0.0.1`. Use the printed numeric-loopback URL. This is a local operator interface, not a remotely deployable authenticated dashboard.
