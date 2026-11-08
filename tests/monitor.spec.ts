@@ -187,7 +187,7 @@ test("execution graph, messages, decision errors, input spaces and stale state",
     .getByRole("button", { name: "New execution", exact: true })
     .first()
     .click();
-  await page.getByLabel("Factory configuration").fill("/project/factory.json");
+  await page.getByLabel("Factory configuration").fill("/project/factory.yaml");
   await page
     .getByLabel("Context / brief")
     .fill("Hello world in Go with spaces");

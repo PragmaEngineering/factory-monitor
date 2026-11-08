@@ -539,7 +539,7 @@
     {:else}<div class="empty-state welcome">
         <span class="welcome-icon"><WorkflowIcon size={36} /></span>
         <h1>{loading ? "Connecting to Controls" : "Execution monitor"}</h1>
-        <p>Select an execution or start one from an existing factory.json.</p>
+        <p>Select an execution or start one from an existing factory.yaml.</p>
         <button
           class="primary"
           disabled={!connected}
@@ -578,7 +578,7 @@
         <label for="config">Factory configuration</label><input
           id="config"
           bind:value={configPath}
-          placeholder="/absolute/path/to/project/factory.json"
+          placeholder="/absolute/path/to/project/factory.yaml"
           required
           pattern="/.*"
         /><small
