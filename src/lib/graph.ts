@@ -1,119 +1,68 @@
-import type { Node, Edge } from "@xyflow/svelte";
+import type { MarkerType, Node, Edge } from "@xyflow/svelte";
 import type { Execution, StepDefinition, StepVisit } from "./types";
+import type { WorkflowLayout } from "./layout";
+import { stepState } from "./format";
+
 export interface StepData extends Record<string, unknown> {
   definition: StepDefinition;
   visit?: StepVisit;
+  state: string;
   now: number;
 }
+
+/** Apply fresh execution observations to stable, configuration-derived geometry. */
 export function graph(
   execution: Execution,
   now: number,
+  geometry: WorkflowLayout,
 ): { nodes: Node[]; edges: Edge[] } {
-  const workflow = execution.configuration.workflow;
   const latest = new Map<string, StepVisit>();
   for (const visit of execution.steps ?? []) latest.set(visit.key, visit);
-  const definitions = new Map(workflow.steps.map((step) => [step.id, step]));
-  const used = new Set<string>();
-  const nodes: Node[] = [];
-  let x = 0;
-  const groups = [
-    ...(workflow.stages ?? []).map((stage) => ({
-      ...stage,
-      steps: [...stage.steps, ...(stage.human?.step ? [stage.human.step] : [])],
-    })),
-  ];
-  for (const step of workflow.steps)
-    if (!groups.some((group) => group.steps.includes(step.id)))
-      groups.push({ id: step.stage || step.id, steps: [step.id] });
-  // Put entry/admission groups first even when they are declared after stages.
-  // Cycles are visited once; route edges remain the source of graph semantics.
-  const rank = new Map<string, number>();
-  const queue = [workflow.start];
-  while (queue.length) {
-    const id = queue.shift()!;
-    if (rank.has(id)) continue;
-    const definition = definitions.get(id);
-    if (!definition) continue;
-    rank.set(id, rank.size);
-    queue.push(...Object.values(definition.routes));
-  }
-  const firstReachable = (steps: string[]) =>
-    Math.min(...steps.map((id) => rank.get(id) ?? Infinity));
-  groups.sort(
-    (left, right) => firstReachable(left.steps) - firstReachable(right.steps),
-  );
-  for (const [index, group] of groups.entries()) {
-    const ids = [...new Set(group.steps)].filter(
-      (id) => definitions.has(id) && !used.has(id),
-    );
-    if (!ids.length) continue;
-    const concurrent = group.loop?.mode === "concurrent";
-    const members = ids.filter((id) => id !== group.human?.step);
-    const width = concurrent ? Math.max(324, members.length * 300 + 24) : 324;
-    const height = concurrent
-      ? group.human?.step
-        ? 470
-        : 280
-      : ids.length * 190 + 85;
-    const parent = `stage:${index}`;
-    nodes.push({
-      id: parent,
-      type: "group",
-      position: { x, y: 0 },
-      data: { label: group.id },
-      style: `width:${width}px;height:${height}px`,
-      selectable: false,
-      draggable: false,
-    });
-    nodes.push({
-      id: `label:${index}`,
-      type: "stageLabel",
-      parentId: parent,
-      position: { x: 22, y: 18 },
-      draggable: false,
-      selectable: false,
+  const nodes = geometry.nodes.map((node) => {
+    if (node.type !== "step") return node;
+    const definition = node.data.definition as StepDefinition;
+    const visit = latest.get(definition.id);
+    return {
+      ...node,
       data: {
-        label: group.id,
-        policy: group.loop
-          ? `${group.loop.mode || "sequential"} · limit ${group.loop.limit}`
-          : "stage",
+        definition,
+        visit,
+        state: stepState(execution.state, visit),
+        now,
       },
-    });
-    ids.forEach((id, i) => {
-      used.add(id);
-      nodes.push({
-        id: `step:${id}`,
-        type: "step",
-        parentId: parent,
-        position: {
-          x:
-            22 +
-            (concurrent
-              ? id === group.human?.step
-                ? (width - 324) / 2
-                : members.indexOf(id) * 300
-              : 0),
-          y: 74 + (concurrent ? (id === group.human?.step ? 190 : 0) : i * 190),
-        },
-        data: { definition: definitions.get(id)!, visit: latest.get(id), now },
-        draggable: false,
-      });
-    });
-    x += width + 100;
-  }
+    };
+  });
+  const byID = new Map(nodes.map((node) => [node.id, node]));
   const edges: Edge[] = [];
-  for (const step of workflow.steps)
+  for (const step of execution.configuration.workflow.steps) {
     for (const [outcome, target] of Object.entries(step.routes)) {
-      if (!definitions.has(target)) continue;
+      const sourceNode = byID.get(`step:${step.id}`),
+        targetNode = byID.get(`step:${target}`);
+      if (!sourceNode || !targetNode) continue;
+      const routed = geometry.routes[`${step.id}:${outcome}`];
+      if (!routed) continue;
+      const unvisited =
+        sourceNode.data.state === "not_visited" ||
+        targetNode.data.state === "not_visited";
       edges.push({
         id: `${step.id}:${outcome}:${target}`,
-        source: `step:${step.id}`,
-        target: `step:${target}`,
+        source: sourceNode.id,
+        target: targetNode.id,
+        sourceHandle: `out-${routed.sourceSide}`,
+        targetHandle: `in-${routed.targetSide}`,
         label: outcome,
-        type: "smoothstep",
-        style: "stroke:#a8b9ae;stroke-width:1.4",
-        labelStyle: "font-size:11px;fill:#626a70",
+        type: "routed",
+        markerEnd: {
+          type: "arrowclosed" as MarkerType,
+          color: unvisited ? "#d4dbd6" : "#819e8d",
+          width: 16,
+          height: 16,
+        },
+        data: { ...routed },
+        style: `stroke:${unvisited ? "#d4dbd6" : "#a8b9ae"};stroke-width:1.4${unvisited ? ";stroke-dasharray:4 4" : ""}`,
+        labelStyle: `font-size:11px;fill:${unvisited ? "#9da69f" : "#626a70"}`,
       });
     }
+  }
   return { nodes, edges };
 }

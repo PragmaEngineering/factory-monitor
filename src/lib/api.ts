@@ -1,10 +1,4 @@
-import type {
-  Execution,
-  Session,
-  Message,
-  Context,
-  SessionMessage,
-} from "./types";
+import type { Execution, Session, Message, SessionMessage } from "./types";
 export async function request<T>(
   route: string,
   body?: unknown,
@@ -21,7 +15,18 @@ export async function request<T>(
     throw new Error(data.error || `Request failed (${response.status})`);
   return data;
 }
+export interface ReportDocument {
+  id: string;
+  snapshot: {
+    as_of: string;
+    selected?: { id: string };
+    [key: string]: unknown;
+  };
+  html: string;
+}
 export const api = {
+  report: (executionID: string, signal?: AbortSignal) =>
+    request<ReportDocument>("/reports", { execution_id: executionID }, signal),
   version: (signal?: AbortSignal) =>
     request<{ api: string }>("/version", undefined, signal),
   executions: (context: string, signal?: AbortSignal) =>
@@ -30,8 +35,6 @@ export const api = {
       undefined,
       signal,
     ).then((x) => x ?? []),
-  contexts: (signal?: AbortSignal) =>
-    request<Context[]>("/contexts", undefined, signal).then((x) => x ?? []),
   execution: (id: string, signal?: AbortSignal) =>
     request<{ execution: Execution }>(
       "/resources/" + encodeURIComponent(id),

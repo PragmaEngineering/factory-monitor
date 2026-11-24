@@ -17,6 +17,7 @@ export function allowedRoute(method: string, pathname: string): boolean {
       new RegExp(`^/sessions/${id}/messages$`),
     ],
     POST: [
+      /^\/reports$/,
       /^\/executions$/,
       new RegExp(`^/requests/${id}/answer$`),
       new RegExp(`^/steps/${id}/retry$`),

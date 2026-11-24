@@ -29,3 +29,16 @@ export const pending = (state: string) =>
   ["pending", "open", "waiting"].includes(state);
 export const active = (state: string) =>
   ["running", "waiting_input", "waiting_peer", "queued"].includes(state);
+
+/** An unvisited alternative is not pending work after an execution terminates. */
+export function stepState(
+  executionState: string,
+  visit?: { state: string },
+): string {
+  return (
+    visit?.state ??
+    (["completed", "failed", "cancelled"].includes(executionState)
+      ? "not_visited"
+      : "pending")
+  );
+}

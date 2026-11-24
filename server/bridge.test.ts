@@ -16,6 +16,9 @@ test("UI allowlist excludes raw logs, agent launch, credentials and global conte
     ["GET", "/sessions/id/inbox"],
   ])
     assert.equal(allowedRoute(method, route), false);
+  assert.equal(allowedRoute("POST", "/reports"), true);
+  assert.equal(allowedRoute("GET", "/reports"), false);
+  assert.equal(allowedRoute("POST", "/reports/other"), false);
   assert.equal(allowedRoute("POST", "/sessions/id/messages"), true);
   assert.equal(allowedRoute("GET", "/executions/id/messages"), true);
 });

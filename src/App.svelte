@@ -4,13 +4,9 @@
   import {
     Workflow as WorkflowIcon,
     MessageSquare,
-    CheckCircle2,
+    House,
+    FileText,
     Plus,
-    Search,
-    ArrowUpRight,
-    RefreshCw,
-    ChevronRight,
-    Box,
     Bot,
     Clock3,
     Coins,
@@ -24,30 +20,30 @@
     Execution,
     Session,
     Message,
-    Context,
     StepDefinition,
   } from "./lib/types";
-  import { elapsed, short, number, pending } from "./lib/format";
+  import { elapsed, short, number, pending, stepState } from "./lib/format";
   import Status from "./components/Status.svelte";
   import Workflow from "./components/Workflow.svelte";
   import Messages from "./components/Messages.svelte";
+  import ExecutionPicker from "./components/ExecutionPicker.svelte";
+  import { addressedToOperator, loadSeen, saveSeen } from "./lib/inbox";
+  import Reports from "./components/Reports.svelte";
   import Decisions from "./components/Decisions.svelte";
   let executions = $state<Execution[]>([]),
-    contexts = $state<Context[]>([]),
     execution = $state<Execution | null>(null),
     sessions = $state<Session[]>([]),
     messages = $state<Message[]>([]);
   let selected = $state(
       new URLSearchParams(location.search).get("execution") || "",
     ),
-    context = $state("*"),
-    search = $state(""),
-    view = $state<"workflow" | "messages" | "decisions">("workflow");
+    view = $state<"home" | "inbox" | "reports">("home");
   let connected = $state(false),
     connectionError = $state(""),
     lastRefresh = $state(0),
     now = $state(Date.now()),
     loading = $state(true);
+  let graphExpanded = $state(false);
   let selectedStep = $state<StepDefinition | null>(null),
     newExecution = $state(false),
     configPath = $state(""),
@@ -62,17 +58,39 @@
     busy = $state(false),
     error = $state("");
   let messageDrafts = $state<Record<string, string>>({});
-  let messageRecipient = $state("all");
+  let pageVisible = $state(document.visibilityState === "visible");
+  let messageRecipient = $state("operator");
+  let inboxTab = $state<"messages" | "requests">("messages");
+  let seenOperatorMessages = $state<Record<string, string[]>>(loadSeen());
+  const incomingOperator = $derived(messages.filter(addressedToOperator));
+  const unreadOperator = $derived(
+    incomingOperator.filter(
+      (message) => !(seenOperatorMessages[selected] ?? []).includes(message.id),
+    ).length,
+  );
+  $effect(() => {
+    if (
+      !pageVisible ||
+      view !== "inbox" ||
+      inboxTab !== "messages" ||
+      messageRecipient !== "operator" ||
+      !selected
+    )
+      return;
+    const seen = seenOperatorMessages[selected] ?? [];
+    const unseen = incomingOperator.filter(
+      (message) => !seen.includes(message.id),
+    );
+    if (!unseen.length) return;
+    seenOperatorMessages = {
+      ...seenOperatorMessages,
+      [selected]: [...seen, ...unseen.map((message) => message.id)],
+    };
+    saveSeen(seenOperatorMessages);
+  });
   let stopped = false,
     refreshing = false;
   let abort: AbortController | undefined;
-  const visible = $derived(
-    executions.filter((e) =>
-      `${e.workflow} ${e.brief} ${e.id} ${e.context_id}`
-        .toLowerCase()
-        .includes(search.toLowerCase()),
-    ),
-  );
   const decisions = $derived(
     (execution?.requests ?? []).filter((r) => pending(r.state)),
   );
@@ -97,13 +115,14 @@
       const version = await api.version(signal);
       if (version.api !== "factory-control-v3")
         throw new Error(`Unsupported controller API: ${version.api}`);
-      const [list, available] = await Promise.all([
-        api.executions(context, signal),
-        api.contexts(signal),
-      ]);
+      const list = await api.executions("*", signal);
       if (stopped) return;
+      list.sort(
+        (a, b) =>
+          Date.parse(b.created_at) - Date.parse(a.created_at) ||
+          b.id.localeCompare(a.id),
+      );
       executions = list;
-      contexts = available;
       if (!selected && list.length) select(list[0].id);
       const id = selected;
       if (id) {
@@ -137,18 +156,18 @@
   }
   function select(id: string) {
     selected = id;
-    messageRecipient = "all";
+    messageRecipient = "operator";
     execution = null;
     sessions = [];
     messages = [];
     selectedStep = null;
+    graphExpanded = false;
     const url = new URL(location.href);
     url.searchParams.set("execution", id);
     history.replaceState(null, "", url);
   }
   $effect(() => {
     selected;
-    context;
     void refresh();
   });
   onMount(() => {
@@ -175,10 +194,12 @@
           .split("\n")
           .map((x) => x.trim())
           .filter(Boolean),
-        context,
+        "*",
       );
       newExecution = false;
       select(record.id);
+      view = "home";
+      inboxTab = "messages";
       void refresh();
     } catch (e) {
       error = (e as Error).message;
@@ -208,88 +229,53 @@
   }
 </script>
 
+<svelte:document
+  onvisibilitychange={() =>
+    (pageVisible = document.visibilityState === "visible")}
+/>
 <svelte:head
   ><title>{execution ? execution.workflow + " · " : ""}Pragma Monitor</title
   ></svelte:head
 >
 <div class="app-shell">
-  <aside class="sidebar">
-    <a class="brand" href="/"
-      >Pragma<span class="brand-sub"
-        >MONITOR</span
-      ></a
-    >
-    <div class="sidebar-section">
-      <span class="eyebrow">CONTROL PLANE</span>
-      <div class="connection">
-        <span class:online={connected} class="connection-dot"></span><strong
-          >{connected ? "Connected" : "Disconnected"}</strong
-        ><small
-          >{connected
-            ? `Refreshed ${Math.max(0, Math.floor((now - lastRefresh) / 1000))}s ago`
-            : "Retained data may be stale"}</small
-        >
-      </div>
-    </div>
-    <div class="sidebar-section execution-index">
-      <div class="sidebar-heading">
-        <span class="eyebrow">EXECUTIONS</span><button
-          class="icon-button"
-          aria-label="New execution"
-          disabled={!connected}
-          onclick={() => {
-            newExecution = true;
-            error = "";
-          }}><Plus size={17} /></button
-        >
-      </div>
-      <label class="search"
-        ><Search size={15} /><input
-          aria-label="Search executions"
-          placeholder="Search executions…"
-          bind:value={search}
-        /></label
-      >
-      <select
-        aria-label="Filter context"
-        bind:value={context}
-        onchange={() => select("")}
-        ><option value="*">All contexts</option>{#each contexts as c}<option
-            value={c.id}>{c.id} · {c.description}</option
-          >{/each}</select
-      >
-      <div class="execution-list">
-        {#each visible as item (item.id)}<button
-            class="execution-item"
-            class:chosen={selected === item.id}
-            onclick={() => select(item.id)}
-            ><div>
-              <strong>{item.workflow}</strong><ChevronRight size={14} />
-            </div>
-            <p>{item.brief || item.project}</p>
-            <footer>
-              <Status value={item.state} /><code>{short(item.id)}</code>
-            </footer></button
-          >{:else}<p class="muted sidebar-empty">
-            {loading ? "Connecting…" : "No matching executions"}
-          </p>{/each}
-      </div>
-    </div>
-    <div class="sidebar-footer">
-      <Box size={15} /><span>Local execution service</span><button
-        class="icon-button"
-        aria-label="Refresh"
-        onclick={() => refresh()}><RefreshCw size={14} /></button
-      >
-    </div>
-  </aside>
   <main>
     <header class="topbar">
-      <div class="breadcrumb">
-        Executions<ChevronRight size={14} /><strong
-          >{execution?.workflow || "Overview"}</strong
-        >{#if execution}<code>{short(execution.id)}</code>{/if}
-      </div>
+      <a class="brand" href="/">Pragma<span class="brand-sub">MONITOR</span></a>
+      <ExecutionPicker {executions} {selected} onselect={select} />
+      <nav class="main-nav" aria-label="Main navigation">
+        <button class:active={view === "home"} onclick={() => (view = "home")}
+          ><House size={16} />Home</button
+        >
+        <button
+          class:active={view === "inbox"}
+          onclick={() => {
+            view = "inbox";
+            inboxTab = "messages";
+            messageRecipient = "operator";
+          }}
+          ><MessageSquare size={16} />Inbox
+          {#if unreadOperator}<span
+              class="unread-badge"
+              aria-label={`${unreadOperator} unread operator messages`}
+              >{unreadOperator}</span
+            >{/if}
+          {#if decisions.length}<span
+              class="request-dot"
+              title={`${decisions.length} pending requests`}
+              aria-label={`${decisions.length} pending requests`}
+            ></span>{/if}
+        </button>
+        <button class:active={view === "reports"} onclick={() => (view = "reports")}><FileText size={16} />Reports</button>
+      </nav>
+      <span
+        class="nav-connection"
+        title={connected
+          ? `Refreshed ${Math.max(0, Math.floor((now - lastRefresh) / 1000))}s ago`
+          : "Retained data may be stale"}
+        ><span class="connection-dot" class:online={connected}></span>{connected
+          ? "Connected"
+          : "Disconnected"}</span
+      >
       <button
         class="primary"
         disabled={!connected}
@@ -304,109 +290,136 @@
           onclick={() => refresh()}>Reconnect</button
         >
       </div>{/if}
-    {#if execution}<div class="execution-header">
-        <div>
-          <div class="title-line">
-            <h1>{execution.workflow}</h1>
-            <Status value={execution.state} />
+    {#if execution}
+      {#if view === "home"}<div class="execution-header">
+          <div>
+            <div class="title-line">
+              <h1>{execution.workflow}</h1>
+              <Status value={execution.state} />
+            </div>
+            <p title={execution.brief}>
+              {execution.brief || "No brief provided"}
+            </p>
+            <div class="execution-location">
+              <code>{execution.context_id}</code><span>{execution.project}</span
+              >
+            </div>
           </div>
-          <p title={execution.brief}>
-            {execution.brief || "No brief provided"}
-          </p>
-          <div class="execution-location">
-            <code>{execution.context_id}</code><span>{execution.project}</span>
-          </div>
+          <button
+            class="danger-quiet"
+            disabled={!connected ||
+              ["completed", "cancelled", "failed"].includes(execution.state)}
+            onclick={() =>
+              requestAction("cancel", execution!.id, "Cancel execution")}
+            ><Square size={13} />Cancel execution</button
+          >
         </div>
-        <button
-          class="danger-quiet"
-          disabled={!connected ||
-            ["completed", "cancelled", "failed"].includes(execution.state)}
-          onclick={() =>
-            requestAction("cancel", execution!.id, "Cancel execution")}
-          ><Square size={13} />Cancel execution</button
-        >
-      </div>
-      <div class="metrics">
-        <article>
-          <span class="metric-icon"><Clock3 size={19} /></span>
-          <div>
-            <small>Elapsed</small><strong
-              >{elapsed(
-                execution.created_at,
-                execution.finished_at,
-                now,
-              )}</strong
+        <div class="metrics">
+          <article>
+            <span class="metric-icon"><Clock3 size={19} /></span>
+            <div>
+              <small>Elapsed</small><strong
+                >{elapsed(
+                  execution.created_at,
+                  execution.finished_at,
+                  now,
+                )}</strong
+              >
+            </div>
+          </article>
+          <article>
+            <span class="metric-icon"><Bot size={19} /></span>
+            <div>
+              <small>Agent sessions</small><strong
+                >{sessions.filter(
+                  (s) => s.runner !== "hook" && s.state === "running",
+                ).length}<em
+                  >running / {sessions.filter((s) => s.runner !== "hook")
+                    .length} total</em
+                ></strong
+              >
+            </div>
+          </article>
+          <article>
+            <span class="metric-icon"><Activity size={19} /></span>
+            <div>
+              <small>Reported tokens</small><strong
+                >{usage?.samples ? number(tokens) : "—"}<em
+                  >{usage?.unreported_sessions
+                    ? "partial coverage"
+                    : usage?.samples
+                      ? "includes cache tokens"
+                      : "not reported"}</em
+                ></strong
+              >
+            </div>
+          </article>
+          <article>
+            <span class="metric-icon"><Coins size={19} /></span>
+            <div>
+              <small>Reported cost</small><strong
+                >{usage &&
+                usage.samples > 0 &&
+                usage.cost_samples === usage.samples &&
+                !usage.unreported_sessions
+                  ? "$" + usage.cost_usd.toFixed(4)
+                  : "—"}<em>USD</em></strong
+              >
+            </div>
+          </article>
+        </div>
+        {#if execution.hooks?.length}<details
+            class="workflow-hooks"
+            open={execution.hooks.some((hook) =>
+              ["failed", "blocked", "interrupted"].includes(hook.state),
+            )}
+          >
+            <summary
+              >Lifecycle hooks <span>{execution.hooks.length}</span></summary
             >
+            <div class="workflow-hook-list">
+              {#each execution.hooks as hook}<div class="hook-row">
+                  <code>{short(hook.id)}</code><Status
+                    value={hook.state}
+                  />{#if hook.error}<p class="error-text">
+                      {hook.error}
+                    </p>{/if}{#if ["failed", "blocked", "interrupted"].includes(hook.state)}<button
+                      disabled={!connected}
+                      onclick={() =>
+                        requestAction("retry", hook.id, "Retry hook")}
+                      >Retry hook</button
+                    >{/if}
+                </div>{/each}
+            </div>
+          </details>{/if}
+      {/if}
+      {#if view === "inbox"}<nav class="inbox-tabs" aria-label="Inbox views">
+          <div class="inbox-title">
+            <h1>Inbox</h1>
+            <small>{execution.workflow} · {short(execution.id)}</small>
           </div>
-        </article>
-        <article>
-          <span class="metric-icon"><Bot size={19} /></span>
-          <div>
-            <small>Agent sessions</small><strong
-              >{sessions.filter(
-                (s) => s.runner !== "hook" && s.state === "running",
-              ).length}<em
-                >running / {sessions.filter((s) => s.runner !== "hook").length} total</em
-              ></strong
-            >
-          </div>
-        </article>
-        <article>
-          <span class="metric-icon"><Activity size={19} /></span>
-          <div>
-            <small>Reported tokens</small><strong
-              >{usage?.samples ? number(tokens) : "—"}<em
-                >{usage?.unreported_sessions
-                  ? "partial coverage"
-                  : usage?.samples
-                    ? "includes cache tokens"
-                    : "not reported"}</em
-              ></strong
-            >
-          </div>
-        </article>
-        <article>
-          <span class="metric-icon"><Coins size={19} /></span>
-          <div>
-            <small>Reported cost</small><strong
-              >{usage &&
-              usage.samples > 0 &&
-              usage.cost_samples === usage.samples &&
-              !usage.unreported_sessions
-                ? "$" + usage.cost_usd.toFixed(4)
-                : "—"}<em>USD</em></strong
-            >
-          </div>
-        </article>
-      </div>
-      <nav class="view-tabs" aria-label="Execution views">
-        <button
-          class:active={view === "workflow"}
-          onclick={() => (view = "workflow")}
-          ><WorkflowIcon size={17} />Workflow</button
-        ><button
-          class:active={view === "messages"}
-          onclick={() => (view = "messages")}
-          ><MessageSquare size={17} />Messages<span>{messages.length}</span
-          ></button
-        ><button
-          class:active={view === "decisions"}
-          onclick={() => (view = "decisions")}
-          ><CheckCircle2 size={17} />Decisions{#if decisions.length}<span
-              class="count-alert">{decisions.length}</span
-            >{/if}</button
-        >
-        <div class="view-spacer"></div>
-        <small
-          ><span class="connection-dot" class:online={connected}
-          ></span>{connected ? "Live refresh · 2s" : "Offline"}</small
-        >
-      </nav>
+          <button
+            class:active={inboxTab === "messages"}
+            onclick={() => (inboxTab = "messages")}
+            >Messages<span>{messages.length}</span></button
+          >
+          <button
+            class:active={inboxTab === "requests"}
+            onclick={() => (inboxTab = "requests")}
+            >Requests{#if decisions.length}<span class="count-alert"
+                >{decisions.length}</span
+              >{/if}</button
+          >
+        </nav>{/if}
       {#if execution.error}<div class="error-banner" role="alert">
           {execution.error}
         </div>{/if}
       <div class="view-content">
-        {#if view === "workflow"}<div class="workflow-layout">
+        {#if view === "home"}<div
+            class="workflow-layout"
+            class:expanded={graphExpanded}
+            class:has-inspector={!!selectedStep}
+          >
             <section class="workflow-panel">
               <div class="section-heading">
                 <span><WorkflowIcon size={17} />Execution graph</span><small
@@ -416,18 +429,20 @@
               {#key execution.id}<Workflow
                   {execution}
                   {now}
+                  bind:expanded={graphExpanded}
                   onselect={(step) => (selectedStep = step)}
                 />{/key}
               <div class="graph-legend">
                 <span><i class="running-dot"></i>Running</span><span
                   ><i class="completed-dot"></i>Completed</span
                 ><span><i class="waiting-dot"></i>Input required</span><span
-                  >Connections show configured outcomes</span
+                  >Scroll vertically · drag to pan · arrows show configured
+                  routes</span
                 >
               </div>
             </section>
-            <aside class="inspector">
-              {#if selectedStep}<div class="section-heading">
+            {#if selectedStep}<aside class="inspector">
+                <div class="section-heading">
                   <span>Step details</span><button
                     class="icon-button"
                     aria-label="Close step details"
@@ -436,7 +451,7 @@
                   >
                 </div>
                 <h3>{selectedStep.title || selectedStep.id}</h3>
-                <Status value={visit?.state || "pending"} />
+                <Status value={stepState(execution.state, visit)} />
                 <dl>
                   <dt>Step</dt>
                   <dd>{selectedStep.id}</dd>
@@ -471,61 +486,14 @@
                       >#{v.visit} / {v.try || 1}</span
                     ><Status value={v.state} />
                   </div>{/each}
-              {:else}<div class="section-heading">
-                  <span>Operator inbox</span><small
-                    >{decisions.length} pending</small
-                  >
-                </div>
-                {#each decisions as d}<button
-                    class="inbox-request"
-                    onclick={() => (view = "decisions")}
-                    ><CheckCircle2 size={17} /><span
-                      >{d.prompt}<small
-                        >Review request<ArrowUpRight size={12} /></small
-                      ></span
-                    ></button
-                  >{:else}<div class="quiet-empty">
-                    <CheckCircle2 size={24} />
-                    <p>No input required</p>
-                    <small>Workflow requests will appear here.</small>
-                  </div>{/each}
-                <div class="section-heading agents-heading">
-                  <span>Agent sessions</span>
-                </div>
-                {#each sessions.filter((s) => s.runner !== "hook") as agent}<button
-                    class="agent-row"
-                    onclick={() => {
-                      messageRecipient = agent.id;
-                      view = "messages";
-                    }}
-                    ><Bot size={16} /><span
-                      ><strong>{agent.name}</strong><small
-                        >{short(agent.id)} · PID {agent.pid || "—"}</small
-                      ></span
-                    ><Status value={agent.state} /></button
-                  >{:else}<p class="muted">
-                    No agent sessions yet.
-                  </p>{/each}{/if}
-              {#if execution.hooks?.length}<h4>Lifecycle hooks</h4>
-                {#each execution.hooks as hook}<div class="hook-row">
-                    <code>{short(hook.id)}</code><Status
-                      value={hook.state}
-                    />{#if hook.error}<p class="error-text">
-                        {hook.error}
-                      </p>{/if}{#if ["failed", "blocked", "interrupted"].includes(hook.state)}<button
-                        disabled={!connected}
-                        onclick={() =>
-                          requestAction("retry", hook.id, "Retry hook")}
-                        >Retry hook</button
-                      >{/if}
-                  </div>{/each}{/if}
-            </aside>
+              </aside>{/if}
           </div>
-        {:else if view === "messages"}{#key execution.id}<Messages
+        {:else if view === "reports"}{#key execution.id}<Reports executionID={selected} />{/key}
+        {:else if inboxTab === "messages"}{#key execution.id}<Messages
               {messages}
               {sessions}
               bind:drafts={messageDrafts}
-              initialRecipient={messageRecipient}
+              bind:recipient={messageRecipient}
               executionID={execution.id}
               disabled={!connected}
               {refresh}

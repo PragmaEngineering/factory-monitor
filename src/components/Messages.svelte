@@ -1,6 +1,8 @@
 <script lang="ts">
+  import Communications from "./Communications.svelte";
   import { Send, ArrowRight, Bot, Users, MessageSquare } from "@lucide/svelte";
   import type { Message, Session, SessionMessage } from "../lib/types";
+  import { operatorConversation } from "../lib/inbox";
   import { api } from "../lib/api";
   import { time, short } from "../lib/format";
   let {
@@ -10,7 +12,7 @@
     disabled,
     refresh,
     drafts = $bindable({}),
-    initialRecipient = "all",
+    recipient = $bindable("operator"),
   }: {
     messages: Message[];
     sessions: Session[];
@@ -18,12 +20,8 @@
     disabled: boolean;
     refresh: () => void;
     drafts: Record<string, string>;
-    initialRecipient?: string;
+    recipient?: string;
   } = $props();
-  let recipient = $state("all");
-  $effect(() => {
-    recipient = initialRecipient;
-  });
   let sending = $state(false);
   let error = $state("");
   let deliveries = $state<SessionMessage[]>([]);
@@ -35,27 +33,11 @@
       (m) =>
         recipient === "all" ||
         (recipient === "operator"
-          ? m.recipient_names?.includes("operator") ||
-            m.sender_name === "operator"
+          ? operatorConversation(m)
           : m.sender_name === session?.name ||
             m.recipient_names?.includes(session?.name || "")),
     ),
   );
-  const traffic = $derived.by(() => {
-    const lanes = new Map<
-      string,
-      { from: string; to: string; count: number }
-    >();
-    for (const message of messages)
-      for (const to of message.recipient_names ?? message.recipients) {
-        const from = message.sender_name || short(message.sender);
-        const key = from + "→" + to;
-        const lane = lanes.get(key) ?? { from, to, count: 0 };
-        lane.count++;
-        lanes.set(key, lane);
-      }
-    return [...lanes.values()];
-  });
   $effect(() => {
     messages;
     const id = recipient;
@@ -91,23 +73,6 @@
 </script>
 
 <div class="messages-page">
-  <div class="traffic-panel">
-    <div class="section-heading">
-      <span><ArrowRight size={16} />Observed communication</span><small
-        >{messages.length} persisted messages</small
-      >
-    </div>
-    <div class="traffic-lanes">
-      {#each traffic as lane}<div class="traffic-lane">
-          <span>{lane.from}</span>
-          <div class="traffic-wire">
-            <i style={`width:${Math.min(100, 10 + lane.count * 3)}%`}
-            ></i><ArrowRight size={14} />
-          </div>
-          <span>{lane.to}</span><b>{lane.count}</b>
-        </div>{:else}<p class="muted">No communication recorded.</p>{/each}
-    </div>
-  </div>
   <div class="conversation-layout">
     <aside class="participant-index">
       <h3>Inboxes</h3>
@@ -201,7 +166,7 @@
           <div>
             <small
               >Sent to this session only. Formal decisions are answered in
-              Decisions.</small
+              Requests.</small
             ><button
               class="primary"
               disabled={disabled ||
@@ -217,4 +182,8 @@
         </div>{/if}
     </section>
   </div>
+  <Communications
+    {messages}
+    selected={recipient === "operator" ? "Operator" : session?.name}
+  />
 </div>

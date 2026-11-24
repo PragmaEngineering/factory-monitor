@@ -8,9 +8,13 @@
   const visit = $derived(data.visit);
 </script>
 
-<Handle type="target" position={Position.Left} />
+{#each [Position.Left, Position.Right, Position.Top, Position.Bottom] as side}
+  <Handle type="target" id={`in-${side}`} position={side} />
+  <Handle type="source" id={`out-${side}`} position={side} />
+{/each}
 <div
   class="step-card"
+  class:not-visited={data.state === "not_visited"}
   class:selected
   class:running={visit?.state === "running"}
   class:failed={!!visit?.error}
@@ -30,7 +34,7 @@
     </div>
   </div>
   <div class="step-meta">
-    <Status value={visit?.state || "pending"} /><span
+    <Status value={data.state} /><span
       ><Clock3 size={12} />{elapsed(
         visit?.started_at,
         visit?.finished_at,
@@ -43,7 +47,8 @@
     </div>{:else}<div class="node-bottom">
       {visit
         ? `Visit ${visit.visit} · Attempt ${visit.try || 1}`
-        : "Not started"}<span>{data.definition.id}</span>
+        : data.state === "not_visited"
+          ? "Not visited in this execution"
+          : "Not started"}<span>{data.definition.id}</span>
     </div>{/if}
 </div>
-<Handle type="source" position={Position.Right} />
