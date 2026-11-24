@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tick } from "svelte";
   import { Search, ChevronDown, Check, Clock3 } from "@lucide/svelte";
   import type { Execution } from "../lib/types";
   import { short } from "../lib/format";
@@ -33,7 +34,16 @@
       ),
   );
   $effect(() => {
-    if (open) requestAnimationFrame(() => searchInput?.focus());
+    if (!open) return;
+    let cancelled = false;
+    // Focus after the input mounts, before a later animation frame can steal
+    // focus back from a result selected with the keyboard.
+    void tick().then(() => {
+      if (!cancelled) searchInput?.focus();
+    });
+    return () => {
+      cancelled = true;
+    };
   });
   function close(event: PointerEvent) {
     if (open && !root.contains(event.target as Node)) open = false;

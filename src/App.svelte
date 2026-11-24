@@ -265,7 +265,18 @@
               aria-label={`${decisions.length} pending requests`}
             ></span>{/if}
         </button>
-        <button class:active={view === "reports"} onclick={() => (view = "reports")}><FileText size={16} />Reports</button>
+        <button
+          aria-label="Reports"
+          aria-current={view === "reports" ? "page" : undefined}
+          class:active={view === "reports"}
+          onclick={() => (view = "reports")}
+          ><FileText size={16} />Reports{#if usage?.tool_failures}<span
+              class="report-nav-count"
+              aria-hidden="true"
+              title={`${usage.tool_failures} recorded tool failures`}
+              >{number(usage.tool_failures)}</span
+            >{/if}</button
+        >
       </nav>
       <span
         class="nav-connection"
@@ -368,6 +379,13 @@
             </div>
           </article>
         </div>
+        {#if usage?.tool_failures}<button
+            class="failure-shortcut"
+            onclick={() => (view = "reports")}
+            ><Activity size={15} /><strong
+              >{number(usage.tool_failures)} failed tool calls</strong
+            ><span>Inspect execution report →</span></button
+          >{/if}
         {#if execution.hooks?.length}<details
             class="workflow-hooks"
             open={execution.hooks.some((hook) =>
@@ -488,7 +506,9 @@
                   </div>{/each}
               </aside>{/if}
           </div>
-        {:else if view === "reports"}{#key execution.id}<Reports executionID={selected} />{/key}
+        {:else if view === "reports"}{#key execution.id}<Reports
+              executionID={selected}
+            />{/key}
         {:else if inboxTab === "messages"}{#key execution.id}<Messages
               {messages}
               {sessions}

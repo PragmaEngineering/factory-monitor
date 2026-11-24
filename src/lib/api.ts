@@ -1,3 +1,5 @@
+import type { ReportDocument } from "./reports";
+export type { ReportDocument } from "./reports";
 import type { Execution, Session, Message, SessionMessage } from "./types";
 export async function request<T>(
   route: string,
@@ -14,15 +16,6 @@ export async function request<T>(
   if (!response.ok)
     throw new Error(data.error || `Request failed (${response.status})`);
   return data;
-}
-export interface ReportDocument {
-  id: string;
-  snapshot: {
-    as_of: string;
-    selected?: { id: string };
-    [key: string]: unknown;
-  };
-  html: string;
 }
 export const api = {
   report: (executionID: string, signal?: AbortSignal) =>
